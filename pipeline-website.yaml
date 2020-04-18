@@ -1,0 +1,481 @@
+Description: >
+  This CloudFormation template deploys a full CI/CD pipeline with all necessary dependencies. AWS CodeBuild, IoT, Infrastructure and Compute deployment via AWS CloudFormation.
+
+Parameters:
+  ProjectID:
+    Description: A unique value to identify the project that will be used to partially name resources in this template.
+    AllowedPattern: ^[0-9a-z]+([0-9a-z-]*[0-9a-z])*$
+    ConstraintDescription: ProjectID can include numbers, lowercase letters, and hyphens (-), first character must be a letter. It cannot start or end with a hyphen(-).
+    Default: prj01
+    Type: String
+
+  Email:
+    Description: The email address where to send notifications
+    Default: yauhen.volkau@gmail.com
+    Type: String
+
+  EnvironmentType:
+    Description: The environment type
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - tst
+      - acc
+      - prd
+
+  GitHubOAuthToken:
+    Description: Create a token with 'repo' and 'admin:repo_hook' permissions here https://github.com/settings/tokens
+    Type: String
+    NoEcho: true
+    MinLength: 40
+    MaxLength: 40
+    AllowedPattern: '[a-z0-9]*'
+
+  GitHubUser:
+    Description: Enter GitHub username of the repository owner
+    Type: String
+    Default: User
+    AllowedPattern: "[A-Za-z0-9-]+"
+
+  GitHubRepository:
+    Description: Enter the repository name that should be monitored for changes
+    Type: String
+    Default: Prj01-website
+
+  GitHubBranch:
+    Description: Enter the GitHub branch to monitored
+    Type: String
+    Default: master
+
+  Region:
+    Description: Type a correct region to find S3 bucket with CF child templates.
+    AllowedPattern: ^[0-9a-z]+([0-9a-z-]*[0-9a-z])*$
+    ConstraintDescription: Region name can include numbers, lowercase letters and hyphens (-). It cannot start or end with a hyphen (-).
+    Default: eu-central-1
+    Type: String
+
+Conditions:
+  CreateDevResources: !Equals [ !Ref EnvironmentType, dev ]
+  CreateTstResources: !Equals [ !Ref EnvironmentType, tst ]
+  CreateAccResources: !Equals [ !Ref EnvironmentType, acc ]
+  CreatePrdResources: !Equals [ !Ref EnvironmentType, prd ]
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: Application Configuration
+          Parameters:
+            - ProjectID
+      - Label:
+          default: GitHub Configuration
+          Parameters:
+            - GitHubOAuthToken
+            - GitHubUser
+            - GitHubRepository
+            - GitHubBranch
+
+    ParameterLabels:
+      ProjectID:
+        default: Customer ID
+      GitHubRepository:
+        default: Repository Name
+      GitHubUser:
+        default: Repository Owner
+      GitHubBranch:
+        default: Repository Branch
+      GitHubOAuthToken:
+        default: OAuth2 Token
+
+Resources:
+# # SNS Topic
+  # CodePipelineSNSTopic:
+    # Type: AWS::SNS::Topic
+    # Properties:
+      # Subscription:
+        # - Endpoint: !Ref Email
+          # Protocol: email
+# S3 Buckets         
+  ArtifactBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Delete
+    Properties:
+      BucketName: !Join [ '-', [ !Ref ProjectID, !Ref EnvironmentType, 'web-artifactstore'] ]
+ 
+# CodePipeline IAM Role
+  CodePipelineRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Path: /
+      RoleName: !Sub ${ProjectID}-${EnvironmentType}-${AWS::Region}-CodePipeline-Web
+      AssumeRolePolicyDocument:
+        Statement:
+        - Action: sts:AssumeRole
+          Effect: Allow
+          Principal:
+            Service: codepipeline.amazonaws.com
+      Policies:
+        - PolicyName: !Sub ${ProjectID}-${EnvironmentType}-${AWS::Region}-CodePipeline-Web
+          PolicyDocument:
+            Statement:
+              - Action:
+                - s3:GetBucketVersioning
+                Resource: "*"
+                  # - !Join [ "", [ "arn:aws:s3:::", !Ref ArtifactBucket ] ]
+                Effect: Allow
+              - Action:
+                - s3:PutObject
+                - s3:GetObject
+                - S3:GetObjectVersion
+                Resource: "*"
+                  # - !Join [ "", [ "arn:aws:s3:::", !Ref ArtifactBucket, "/*" ] ]
+                Effect: Allow
+              - Action:
+                - codedeploy:CreateDeployment
+                - codedeploy:GetApplicationRevision
+                - codedeploy:GetDeployment
+                - codedeploy:GetDeploymentConfig
+                - codedeploy:RegisterApplicationRevision
+                - cloudformation:CreateStack
+                - cloudformation:DeleteStack
+                - cloudformation:DescribeStacks
+                - cloudformation:UpdateStack
+                - cloudformation:CreateChangeSet
+                - cloudformation:DeleteChangeSet
+                - cloudformation:DescribeChangeSet
+                - cloudformation:ExecuteChangeSet
+                - cloudformation:SetStackPolicy
+                - cloudformation:ValidateTemplate
+                - iam:PassRole
+                - codebuild:BatchGetBuilds
+                - codebuild:StartBuild
+                - 'sns:Publish'
+                - 'lambda:*'
+                - 'codebuild:*'
+                Resource: "*"
+                Effect: Allow
+
+# # CodePipeline-CloudFormation IAM Role
+  # CodePipelineCloudFormationRole:
+    # Type: AWS::IAM::Role
+    # Properties:
+      # Path: /
+      # RoleName: !Sub ${ProjectID}-${EnvironmentType}-${AWS::Region}-CloudFormation-web
+      # AssumeRolePolicyDocument:
+        # Statement:
+        # - Action: sts:AssumeRole
+          # Effect: Allow
+          # Principal:
+            # Service: cloudformation.amazonaws.com
+        # Version: '2012-10-17'
+      # Policies:
+        # - PolicyName: !Sub ${ProjectID}-${EnvironmentType}-${AWS::Region}-CloudFormation-web
+          # PolicyDocument:
+            # Version: '2012-10-17'
+            # Statement:
+            # - Effect: Allow
+              # Action: "*:*"
+              # Resource: "*"
+
+# CodePipeline          
+  CodePipeline:
+    Type: AWS::CodePipeline::Pipeline
+    Properties:
+      Name: !Join [ "-", [ !Ref ProjectID, !Ref EnvironmentType, 'WebAutoDeploy' ] ]
+      RoleArn: !Sub ${CodePipelineRole.Arn}
+      ArtifactStore:
+        Type: S3
+        Location: !Ref ArtifactBucket
+      Stages:
+        - Name: Source
+          Actions:
+            - Name: GitHub
+              ActionTypeId:
+                Category: Source
+                Owner: ThirdParty
+                Version: 1
+                Provider: GitHub
+              OutputArtifacts:
+                -  Name: Source
+              Configuration:
+                Owner: !Ref GitHubUser
+                Repo: !Ref GitHubRepository
+                Branch: !Ref GitHubBranch
+                OAuthToken: !Ref GitHubOAuthToken
+        - Name: Deploy
+          Actions:
+            - Name: WebsiteDeploy
+              RunOrder: 1
+              InputArtifacts:
+                - Name: Source
+              ActionTypeId:
+                Category: Deploy
+                Owner: AWS
+                Version: 1
+                Provider: S3
+              Configuration:
+                BucketName: prj01-dev-sapp
+                Extract: true
+                
+        # - Name: IaCDeploy
+          # Actions:
+            # - !If
+              # - CreatePrdResources
+              # - Name: ApproveDeployment
+                # ActionTypeId:
+                  # Category: Approval
+                  # Owner: AWS
+                  # Provider: Manual
+                  # Version: '1'
+                # Configuration:
+                  # NotificationArn: !Ref CodePipelineSNSTopic
+                  # CustomData: !Sub 'Are you sure you want to deploy all resources in PRD?'
+                # RunOrder: 1
+              # - !Ref AWS::NoValue
+    # Pipeline - Infra
+            # - !If
+              # - CreateDevResources
+              # - Name: CreateS3StaticHostingChangeSet
+                # ActionTypeId:
+                  # Category: Deploy
+                  # Owner: AWS
+                  # Provider: CloudFormation
+                  # Version: 1
+                # InputArtifacts:
+                  # - Name: Source
+                  # - Name: Build
+                # OutputArtifacts:
+                  # - Name: CreateS3StaticHostingChangeSet
+                # Configuration:
+                  # ActionMode: CHANGE_SET_REPLACE
+                  # Capabilities: CAPABILITY_IAM,CAPABILITY_NAMED_IAM,CAPABILITY_AUTO_EXPAND
+                  # RoleArn: !GetAtt [CodePipelineCloudFormationRole, Arn]
+                  # ChangeSetName: !Join [ "-", [ !Ref ProjectID, !Ref EnvironmentType, "S3StaticHosting"] ]
+                  # StackName: !Join [ "-", [ !Ref ProjectID, !Ref EnvironmentType, "S3StaticHosting"] ]
+                  # TemplatePath: !Sub "Build::s3-static-hosting.yaml"
+                # RunOrder: 10
+              # - !Ref AWS::NoValue
+            # - !If
+              # - CreateDevResources
+              # - Name: ExecuteS3StaticHostingChangeSet
+                # ActionTypeId:
+                  # Category: Deploy
+                  # Owner: AWS
+                  # Provider: CloudFormation
+                  # Version: 1
+                # Configuration:
+                  # ActionMode: CHANGE_SET_EXECUTE
+                  # ChangeSetName: !Join [ "-", [ !Ref ProjectID, !Ref EnvironmentType, "S3StaticHosting"] ]
+                  # RoleArn: !GetAtt [CodePipelineCloudFormationRole, Arn]
+                  # StackName: !Join [ "-", [ !Ref ProjectID, !Ref EnvironmentType, "S3StaticHosting"] ]
+                # RunOrder: 11
+              # - !Ref AWS::NoValue
+            # - !If
+              # - CreatePrdResources
+              # - Name: CreateInfraChangeSet
+                # ActionTypeId:
+                  # Category: Deploy
+                  # Owner: AWS
+                  # Provider: CloudFormation
+                  # Version: 1
+                # InputArtifacts:
+                  # - Name: Source
+                  # - Name: Build
+                # OutputArtifacts:
+                  # - Name: CreateInfraChangeSet
+                # Configuration:
+                  # ActionMode: CHANGE_SET_REPLACE
+                  # Capabilities: CAPABILITY_IAM,CAPABILITY_NAMED_IAM,CAPABILITY_AUTO_EXPAND
+                  # RoleArn: !GetAtt [CodePipelineCloudFormationRole, Arn]
+                  # ChangeSetName: !Join [ "-", [ !Ref ProjectID, !Ref EnvironmentType, "Infra"] ]
+                  # StackName: !Join [ "-", [ !Ref ProjectID, !Ref EnvironmentType, "infra"] ]
+                  # TemplatePath: !Sub "Build::infra.yaml"
+                # RunOrder: 10
+              # - !Ref AWS::NoValue
+            # - !If
+              # - CreatePrdResources
+              # - Name: ExecuteInfraChangeSet
+                # ActionTypeId:
+                  # Category: Deploy
+                  # Owner: AWS
+                  # Provider: CloudFormation
+                  # Version: 1
+                # Configuration:
+                  # ActionMode: CHANGE_SET_EXECUTE
+                  # ChangeSetName: !Join [ "-", [ !Ref ProjectID, !Ref EnvironmentType, "Infra"] ]
+                  # RoleArn: !GetAtt [CodePipelineCloudFormationRole, Arn]
+                  # StackName: !Join [ "-", [ !Ref ProjectID, !Ref EnvironmentType, "infra"] ]
+                # RunOrder: 11
+              # - !Ref AWS::NoValue
+    # # Pipeline - Compute
+            # - !If
+              # - CreateTstResources
+              # - Name: CreateComputeChangeSet
+                # ActionTypeId:
+                  # Category: Deploy
+                  # Owner: AWS
+                  # Provider: CloudFormation
+                  # Version: 1
+                # InputArtifacts:
+                  # - Name: Source
+                  # - Name: Build
+                # OutputArtifacts:
+                  # - Name: CreateComputeChangeSet
+                # Configuration:
+                  # ActionMode: CHANGE_SET_REPLACE
+                  # Capabilities: CAPABILITY_IAM,CAPABILITY_NAMED_IAM,CAPABILITY_AUTO_EXPAND
+                  # RoleArn: !GetAtt [CodePipelineCloudFormationRole, Arn]
+                  # ChangeSetName: !Join [ "-", [ !Ref ProjectID, !Ref EnvironmentType, "Compute"] ]
+                  # StackName: !Join [ "-", [ !Ref ProjectID, !Ref EnvironmentType, "compute"] ]
+                  # TemplatePath: !Sub "Source::cfn/compute.yaml"
+                  # TemplateConfiguration: !Join [ "", [ "Source::cfn/compute-", !Ref EnvironmentType, "-config.json"] ]
+                # RunOrder: 12                  
+              # - !Ref AWS::NoValue
+            # - !If
+              # - CreateTstResources
+              # - Name: ExecuteComputeChangeSet
+                # ActionTypeId:
+                  # Category: Deploy
+                  # Owner: AWS
+                  # Provider: CloudFormation
+                  # Version: 1
+                # Configuration:
+                  # ActionMode: CHANGE_SET_EXECUTE
+                  # ChangeSetName: !Join [ "-", [ !Ref ProjectID, !Ref EnvironmentType, "Compute"] ]
+                  # RoleArn: !GetAtt [CodePipelineCloudFormationRole, Arn]
+                  # StackName: !Join [ "-", [ !Ref ProjectID, !Ref EnvironmentType, "compute"] ]
+                # RunOrder: 13
+              # - !Ref AWS::NoValue
+            # - !If
+              # - CreatePrdResources          
+              # - Name: CreateComputeChangeSet
+                # ActionTypeId:
+                  # Category: Deploy
+                  # Owner: AWS
+                  # Provider: CloudFormation
+                  # Version: 1
+                # InputArtifacts:
+                  # - Name: Source
+                  # - Name: Build
+                # OutputArtifacts:
+                  # - Name: CreateComputeChangeSet
+                # Configuration:
+                  # ActionMode: CHANGE_SET_REPLACE
+                  # Capabilities: CAPABILITY_IAM,CAPABILITY_NAMED_IAM,CAPABILITY_AUTO_EXPAND
+                  # RoleArn: !GetAtt [CodePipelineCloudFormationRole, Arn]
+                  # ChangeSetName: !Join [ "-", [ !Ref ProjectID, !Ref EnvironmentType, "Compute"] ]
+                  # StackName: !Join [ "-", [ !Ref ProjectID, !Ref EnvironmentType, "compute"] ]
+                  # TemplatePath: !Sub "Source::cfn/compute.yaml"
+                  # TemplateConfiguration: !Join [ "", [ "Source::cfn/compute-", !Ref EnvironmentType, "-config.json"] ]
+                # RunOrder: 12
+              # - !Ref AWS::NoValue
+            # - !If
+              # - CreatePrdResources
+              # - Name: ExecuteComputeChangeSet
+                # ActionTypeId:
+                  # Category: Deploy
+                  # Owner: AWS
+                  # Provider: CloudFormation
+                  # Version: 1
+                # Configuration:
+                  # ActionMode: CHANGE_SET_EXECUTE
+                  # ChangeSetName: !Join [ "-", [ !Ref ProjectID, !Ref EnvironmentType, "Compute"] ]
+                  # RoleArn: !GetAtt [CodePipelineCloudFormationRole, Arn]
+                  # StackName: !Join [ "-", [ !Ref ProjectID, !Ref EnvironmentType, "compute"] ]
+                # RunOrder: 13
+              # - !Ref AWS::NoValue
+    # # Pipeline - IoT
+            # - !If
+              # - CreateTstResources
+              # - Name: CreateIotChangeSet
+                # ActionTypeId:
+                  # Category: Deploy
+                  # Owner: AWS
+                  # Provider: CloudFormation
+                  # Version: 1
+                # InputArtifacts:
+                  # - Name: Source
+                  # - Name: Build
+                # OutputArtifacts:
+                  # - Name: CreateIotChangeSet
+                # Configuration:
+                  # ActionMode: CHANGE_SET_REPLACE
+                  # Capabilities: CAPABILITY_IAM,CAPABILITY_NAMED_IAM,CAPABILITY_AUTO_EXPAND
+                  # RoleArn: !GetAtt [CodePipelineCloudFormationRole, Arn]
+                  # ChangeSetName: !Join [ "-", [ !Ref ProjectID, !Ref EnvironmentType, "iot"] ]
+                  # StackName: !Join [ "-", [ !Ref ProjectID, !Ref EnvironmentType, "iot"] ]
+                  # TemplatePath: !Sub "Build::iot.yaml"
+                # RunOrder: 20
+              # - !Ref AWS::NoValue
+            # - !If
+              # - CreateTstResources
+              # - Name: ExecuteIotChangeSet
+                # ActionTypeId:
+                  # Category: Deploy
+                  # Owner: AWS
+                  # Provider: CloudFormation
+                  # Version: 1
+                # Configuration:
+                  # ActionMode: CHANGE_SET_EXECUTE
+                  # ChangeSetName: !Join [ "-", [ !Ref ProjectID, !Ref EnvironmentType, "iot"] ]
+                  # RoleArn: !GetAtt [CodePipelineCloudFormationRole, Arn]
+                  # StackName: !Join [ "-", [ !Ref ProjectID, !Ref EnvironmentType, "iot"] ]
+                # RunOrder: 30
+              # - !Ref AWS::NoValue
+            # - !If
+              # - CreatePrdResources
+              # - Name: CreateIotChangeSet
+                # ActionTypeId:
+                  # Category: Deploy
+                  # Owner: AWS
+                  # Provider: CloudFormation
+                  # Version: 1
+                # InputArtifacts:
+                  # - Name: Source
+                  # - Name: Build
+                # OutputArtifacts:
+                  # - Name: CreateIotChangeSet
+                # Configuration:
+                  # ActionMode: CHANGE_SET_REPLACE
+                  # Capabilities: CAPABILITY_IAM,CAPABILITY_NAMED_IAM,CAPABILITY_AUTO_EXPAND
+                  # RoleArn: !GetAtt [CodePipelineCloudFormationRole, Arn]
+                  # ChangeSetName: !Join [ "-", [ !Ref ProjectID, !Ref EnvironmentType, "iot"] ]
+                  # StackName: !Join [ "-", [ !Ref ProjectID, !Ref EnvironmentType, "iot"] ]
+                  # TemplatePath: !Sub "Build::iot.yaml"
+                # RunOrder: 20
+              # - !Ref AWS::NoValue
+            # - !If
+              # - CreatePrdResources
+              # - Name: ExecuteIotChangeSet
+                # ActionTypeId:
+                  # Category: Deploy
+                  # Owner: AWS
+                  # Provider: CloudFormation
+                  # Version: 1
+                # Configuration:
+                  # ActionMode: CHANGE_SET_EXECUTE
+                  # ChangeSetName: !Join [ "-", [ !Ref ProjectID, !Ref EnvironmentType, "iot"] ]
+                  # RoleArn: !GetAtt [CodePipelineCloudFormationRole, Arn]
+                  # StackName: !Join [ "-", [ !Ref ProjectID, !Ref EnvironmentType, "iot"] ]
+                # RunOrder: 30
+              # - !Ref AWS::NoValue
+
+
+# Outputs:
+  # ArtifactBucket:
+    # Value: !Ref ArtifactBucket
+    # Export:
+      # Name: !Sub ArtifactBucket
+  # ProjectID:
+    # Value: !Ref ProjectID
+    # Export:
+      # Name: ProjectID
+  # EnvironmentType:
+    # Value: !Ref EnvironmentType
+    # Export:
+      # Name: EnvironmentType
+  # Region:
+    # Value: !Ref Region
+    # Export:
+      # Name: Region
