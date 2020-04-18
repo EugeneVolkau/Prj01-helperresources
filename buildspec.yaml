@@ -10,11 +10,11 @@ phases:
     commands:
       - echo Entering the build phase...
       - echo Building started on `date`
-      - aws cloudformation package --template-file EmptyBucketOnDeleteLambda.yaml --s3-bucket $ARTIFACT_S3_BUCKET --output-template-file EmptyBucketOnDeleteLambda.yaml
+      - aws cloudformation package --template-file LambdaFunctions.yaml --s3-bucket $ARTIFACT_S3_BUCKET --output-template-file LambdaFunctions.yaml
     finally:
       - echo This always runs even if the install command fails
 artifacts:
   type: zip
   files:
-    - 'EmptyBucketOnDeleteLambda.yaml'
+    - 'LambdaFunctions.yaml'
   discard-paths: yes
