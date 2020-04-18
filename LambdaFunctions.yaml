@@ -1,10 +1,10 @@
 AWSTemplateFormatVersion: "2010-09-09"
 
 Description: >
-  This template builds a Lambda function that will empty the bucket on delete.
+  This template builds all Lambda function helpers and thier IAM roles.
 
 Resources:
-
+# Empty S3 On Delete Lambda Resources (will empty the bucket on delete).
   EmptyBucketOnDeleteLambdaRole:
     Type: AWS::IAM::Role
     Properties:
