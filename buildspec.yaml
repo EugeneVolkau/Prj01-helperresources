@@ -1,0 +1,20 @@
+version: 0.2
+
+phases:
+  install:
+    runtime-versions:
+      nodejs: 10
+    finally:
+      - echo This always runs even if the update or install command fails
+  build:
+    commands:
+      - echo Entering the build phase...
+      - echo Building started on `date`
+      - aws cloudformation package --template-file EmptyBucketOnDeleteLambda.yaml --s3-bucket $ARTIFACT_S3_BUCKET --output-template-file EmptyBucketOnDeleteLambda.yaml
+    finally:
+      - echo This always runs even if the install command fails
+artifacts:
+  type: zip
+  files:
+    - 'EmptyBucketOnDeleteLambda.yaml'
+  discard-paths: yes
