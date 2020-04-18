@@ -41,7 +41,7 @@ Parameters:
   GitHubRepository:
     Description: Enter the repository name that should be monitored for changes
     Type: String
-    Default: ServerlessApp
+    Default: Prj01-awsresources
 
   GitHubBranch:
     Description: Enter the GitHub branch to monitored
