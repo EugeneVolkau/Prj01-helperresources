@@ -175,8 +175,9 @@ Resources:
                   - "s3:PutObject"
                   - "s3:PutObjectAcl"
                   - "s3:PutObjectVersionAcl"
-                Resource:
-                  - !Join [ "", [ !ImportValue WebsiteBucketARN, "/*" ] ]
+                Resource: "*"
+                  # - !Join [ "", [ !ImportValue WebsiteBucketARN, "/*" ] ]
+                  # (if you enable this line this policy will be dependent on WebsiteBucket creation).
 
   UpdateWebConfigLambda:
     Type: AWS::Lambda::Function  
