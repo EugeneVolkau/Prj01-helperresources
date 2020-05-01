@@ -12,7 +12,8 @@ phases:
       - echo Building started on `date`
       - aws cloudformation package --template-file cloudformation/lambdahelpers/lambdaHelpers.yaml --s3-bucket $ARTIFACT_S3_BUCKET --output-template-file lambdaHelpers.yaml
       - aws cloudformation package --template-file cloudformation/pipelines/pipeline-helpers.yaml --s3-bucket $ARTIFACT_S3_BUCKET --output-template-file pipeline-helpers.yaml
-      - aws cloudformation package --template-file cloudformation/pipelines/pipeline-resources.yaml --s3-bucket $ARTIFACT_S3_BUCKET --output-template-file pipeline-resources.yaml
+      - aws cloudformation package --template-file cloudformation/pipelines/pipeline-infraResources.yaml --s3-bucket $ARTIFACT_S3_BUCKET --output-template-file pipeline-infraResources.yaml
+      - aws cloudformation package --template-file cloudformation/pipelines/pipeline-softResources.yaml --s3-bucket $ARTIFACT_S3_BUCKET --output-template-file pipeline-softResources.yaml
       - aws cloudformation package --template-file cloudformation/pipelines/pipeline-website.yaml --s3-bucket $ARTIFACT_S3_BUCKET --output-template-file pipeline-website.yaml
     finally:
       - echo This always runs even if the install command fails
@@ -21,6 +22,7 @@ artifacts:
   files:
     - 'lambdaHelpers.yaml'
     - 'pipeline-helpers.yaml'
-    - 'pipeline-resources.yaml'
+    - 'pipeline-infraResources.yaml'
+    - 'pipeline-softResources.yaml'    
     - 'pipeline-website.yaml'
   discard-paths: yes
