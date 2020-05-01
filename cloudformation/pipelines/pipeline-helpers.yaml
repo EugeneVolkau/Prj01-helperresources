@@ -96,7 +96,7 @@ Resources:
       Subscription:
         - Endpoint: !Ref Email
           Protocol: email
-# S3 Buckets (this bucket will have to be manaully emptied before deleting cloudformation stack).        
+# S3 Buckets (this bucket will have to be manaully emptied before deleting cloudformation stack).
   ArtifactBucket:
     Type: AWS::S3::Bucket
     DeletionPolicy: Delete
@@ -133,7 +133,7 @@ Resources:
               Action:
               - s3:GetObject
               - s3:GetObjectVersion
-              - s3:PutObject            
+              - s3:PutObject
       
 # CodeBuild Project
   PackageCFTemplates:
