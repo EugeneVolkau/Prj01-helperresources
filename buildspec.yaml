@@ -10,7 +10,7 @@ phases:
     commands:
       - echo Entering the build phase...
       - echo Building started on `date`
-      - aws cloudformation package --template-file LambdaFunctions.yaml --s3-bucket $ARTIFACT_S3_BUCKET --output-template-file LambdaFunctions.yaml
+      - aws cloudformation package --template-file cloudformation/lambdahelpers/lambdaHelpers.yaml.yaml --s3-bucket $ARTIFACT_S3_BUCKET --output-template-file lambdaHelpers.yaml.yaml
       - aws cloudformation package --template-file cloudformation/pipelines/pipeline-helpers.yaml --s3-bucket $ARTIFACT_S3_BUCKET --output-template-file pipeline-helpers.yaml
       - aws cloudformation package --template-file cloudformation/pipelines/pipeline-resources.yaml --s3-bucket $ARTIFACT_S3_BUCKET --output-template-file pipeline-resources.yaml
       - aws cloudformation package --template-file cloudformation/pipelines/pipeline-website.yaml --s3-bucket $ARTIFACT_S3_BUCKET --output-template-file pipeline-website.yaml
@@ -19,7 +19,7 @@ phases:
 artifacts:
   type: zip
   files:
-    - 'LambdaFunctions.yaml'
+    - 'lambdaHelpers.yaml'
     - 'pipeline-helpers.yaml'
     - 'pipeline-resources.yaml'
     - 'pipeline-website.yaml'
