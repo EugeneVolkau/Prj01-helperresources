@@ -1,0 +1,170 @@
+Description: >
+  This CloudFormation template deploys all CI/CD pipelines whih will deploy other resources for the project and sets up global parameters.
+
+Parameters:
+  ProjectID:
+    Description: A unique value to identify the project that will be used to partially name resources in this template.
+    AllowedPattern: ^[0-9a-z]+([0-9a-z-]*[0-9a-z])*$
+    ConstraintDescription: ProjectID can include numbers, lowercase letters, and hyphens (-), first character must be a letter. It cannot start or end with a hyphen(-).
+    Default: proj01
+    Type: String
+
+  Email:
+    Description: The email address where to send notifications
+    Default: yauhen.volkau@gmail.com
+    Type: String
+
+  EnvironmentType:
+    Description: The environment type
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - tst
+      - acc
+      - prd
+
+  GitHubOAuthToken:
+    Description: Create a token with 'repo' and 'admin:repo_hook' permissions here https://github.com/settings/tokens
+    Type: String
+    NoEcho: true
+    MinLength: 40
+    MaxLength: 40
+    AllowedPattern: '[a-z0-9]*'
+
+  GitHubUser:
+    Description: Enter GitHub username of the repository owner
+    Type: String
+    Default: User
+    AllowedPattern: "[A-Za-z0-9-]+"
+
+  GitHubRepository:
+    Description: Enter the repository name that should be monitored for changes
+    Type: String
+    Default: Prj01-helperresources
+
+  GitHubBranch:
+    Description: Enter the GitHub branch to monitored
+    Type: String
+    Default: master
+
+  Region:
+    Description: Type a correct region to find S3 bucket with CF child templates.
+    AllowedPattern: ^[0-9a-z]+([0-9a-z-]*[0-9a-z])*$
+    ConstraintDescription: Region name can include numbers, lowercase letters and hyphens (-). It cannot start or end with a hyphen (-).
+    Default: eu-central-1
+    Type: String
+
+Conditions:
+  CreateDevResources: !Equals [ !Ref EnvironmentType, dev ]
+  CreateTstResources: !Equals [ !Ref EnvironmentType, tst ]
+  CreateAccResources: !Equals [ !Ref EnvironmentType, acc ]
+  CreatePrdResources: !Equals [ !Ref EnvironmentType, prd ]
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: Application Configuration
+          Parameters:
+            - ProjectID
+      - Label:
+          default: GitHub Configuration
+          Parameters:
+            - GitHubOAuthToken
+            - GitHubUser
+            - GitHubRepository
+            - GitHubBranch
+
+    ParameterLabels:
+      ProjectID:
+        default: Customer ID
+      GitHubRepository:
+        default: Repository Name
+      GitHubUser:
+        default: Repository Owner
+      GitHubBranch:
+        default: Repository Branch
+      GitHubOAuthToken:
+        default: OAuth2 Token
+
+Resources:
+# SNS Topic
+  CodePipelineSNSTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      Subscription:
+        - Endpoint: !Ref Email
+          Protocol: email
+# S3 Buckets (this bucket will have to be manaully emptied before deleting cloudformation stack).
+  ArtifactBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Delete
+    Properties:
+      BucketName: !Join [ '-', [ !Ref ProjectID, !Ref EnvironmentType, 'orchestrator-artifacts'] ]
+      
+# CodeBuild IAM Role
+  CodeBuildRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Path: /
+      RoleName: !Sub ${ProjectID}-${EnvironmentType}-${AWS::Region}-CodeBuild-Role
+      AssumeRolePolicyDocument:
+        Statement:
+        - Action: sts:AssumeRole
+          Effect: Allow
+          Principal:
+            Service: codebuild.amazonaws.com
+      Policies:
+        - PolicyName: !Sub ${ProjectID}-${EnvironmentType}-${AWS::Region}-CodeBuild-Policy
+          PolicyDocument:
+            Statement:
+            - Effect: Allow
+              Resource: "*"
+              Action:
+              - iam:PassRole
+              - logs:CreateLogGroup
+              - logs:CreateLogStream
+              - logs:PutLogEvents
+              - greengrass:*
+              - cloudformation:ListExports
+            - Effect: Allow
+              Resource: !Sub "arn:aws:s3:::*/*"
+              Action:
+              - s3:GetObject
+              - s3:GetObjectVersion
+              - s3:PutObject
+      
+# CodeBuild Project
+  PackageCFTemplates:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: !Join [ "-", [ !Ref ProjectID, !Ref EnvironmentType, "PackageCFTemplates"] ]
+      Description: !Sub Build project for ${ProjectID}
+      ServiceRole: !Ref CodeBuildRole
+      Source:
+        BuildSpec: buildspec.yaml
+        Type: CODEPIPELINE
+      Environment:
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: aws/codebuild/nodejs:10.14.1
+        Type: LINUX_CONTAINER
+        EnvironmentVariables:
+          - Name: ARTIFACT_S3_BUCKET
+            Value: !Sub ${ArtifactBucket}
+      Artifacts:
+        Name: !Ref ProjectID
+        Type: CODEPIPELINE    
+Outputs:
+  ProjectID:
+    Value: !Ref ProjectID
+    Export:
+      Name: ProjectID
+  EnvironmentType:
+    Value: !Ref EnvironmentType
+    Export:
+      Name: EnvironmentType
+  Region:
+    Value: !Ref Region
+    Export:
+      Name: Region
