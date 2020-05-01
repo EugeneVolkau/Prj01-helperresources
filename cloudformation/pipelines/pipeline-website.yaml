@@ -1,0 +1,170 @@
+Description: >
+  This CloudFormation template deploys a full CI/CD pipeline to keep website content in sync with GitHub.
+
+Parameters:
+  GitHubOAuthToken:
+    Description: Create a token with 'repo' and 'admin:repo_hook' permissions here https://github.com/settings/tokens
+    Type: String
+    NoEcho: true
+    MinLength: 40
+    MaxLength: 40
+    AllowedPattern: '[a-z0-9]*'
+
+  GitHubUser:
+    Description: Enter GitHub username of the repository owner
+    Type: String
+    Default: User
+    AllowedPattern: "[A-Za-z0-9-]+"
+
+  GitHubRepository:
+    Description: Enter the repository name that should be monitored for changes
+    Type: String
+    Default: Prj01-website
+
+  GitHubBranch:
+    Description: Enter the GitHub branch to monitored
+    Type: String
+    Default: master
+    
+  WebsiteBucket:
+    Description: Enter the name of the bucket where website needs to be copied to
+    Type: String
+    Default: proj01-dev-sapp 
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: GitHub Configuration
+          Parameters:
+            - GitHubOAuthToken
+            - GitHubUser
+            - GitHubRepository
+            - GitHubBranch
+
+    ParameterLabels:
+      GitHubRepository:
+        default: Repository Name
+      GitHubUser:
+        default: Repository Owner
+      GitHubBranch:
+        default: Repository Branch
+      GitHubOAuthToken:
+        default: OAuth2 Token
+
+Resources:
+# # SNS Topic
+  # CodePipelineSNSTopic:
+    # Type: AWS::SNS::Topic
+    # Properties:
+      # Subscription:
+        # - Endpoint: !Ref Email
+          # Protocol: email
+
+# S3 Buckets         
+  ArtifactBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Delete
+    Properties:
+      BucketName: !Join [ '-', [ !ImportValue ProjectID, !ImportValue EnvironmentType, 'web-artifacts'] ]
+      
+  CleanupArtifactBucketOnDelete:
+    Type: Custom::cleanupbucket
+    Properties:
+      ServiceToken: !ImportValue EmptyS3OnDeleteLambdaARN
+      BucketName: !Ref ArtifactBucket      
+ 
+# CodePipeline IAM Role
+  CodePipelineRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Path: /
+      RoleName: !Join [ '-', [ !ImportValue ProjectID, !ImportValue EnvironmentType, !Sub '${AWS::Region}', 'CodePipeline', 'web', 'Role' ] ]      
+      AssumeRolePolicyDocument:
+        Statement:
+        - Action: sts:AssumeRole
+          Effect: Allow
+          Principal:
+            Service: codepipeline.amazonaws.com
+      Policies:
+        - PolicyName: !Join [ '-', [ !ImportValue ProjectID, !ImportValue EnvironmentType, !Sub '${AWS::Region}', 'CodePipeline', 'web', 'Policy' ] ]        
+          PolicyDocument:
+            Statement:
+              - Action:
+                - s3:GetBucketVersioning
+                Resource: 
+                  - !Join [ "", [ "arn:aws:s3:::", !Ref ArtifactBucket ] ]
+                  - !Join [ "", [ "arn:aws:s3:::", !Ref WebsiteBucket ] ]
+                Effect: Allow
+              - Action:
+                - s3:PutObject
+                - s3:GetObject
+                - S3:GetObjectVersion
+                Resource:
+                  - !Join [ "", [ "arn:aws:s3:::", !Ref WebsiteBucket, "/*"] ]               
+                  - !Join [ "", [ "arn:aws:s3:::", !Ref ArtifactBucket, "/*" ] ]
+                Effect: Allow
+              - Action:
+                - codedeploy:CreateDeployment
+                - codedeploy:GetApplicationRevision
+                - codedeploy:GetDeployment
+                - codedeploy:GetDeploymentConfig
+                - codedeploy:RegisterApplicationRevision
+                - cloudformation:CreateStack
+                - cloudformation:DeleteStack
+                - cloudformation:DescribeStacks
+                - cloudformation:UpdateStack
+                - cloudformation:CreateChangeSet
+                - cloudformation:DeleteChangeSet
+                - cloudformation:DescribeChangeSet
+                - cloudformation:ExecuteChangeSet
+                - cloudformation:SetStackPolicy
+                - cloudformation:ValidateTemplate
+                - iam:PassRole
+                - codebuild:BatchGetBuilds
+                - codebuild:StartBuild
+                - 'sns:Publish'
+                - 'lambda:*'
+                - 'codebuild:*'
+                Resource: "*"
+                Effect: Allow
+
+# CodePipeline          
+  CodePipeline:
+    Type: AWS::CodePipeline::Pipeline
+    Properties:
+      Name: !Join [ "-", [ !ImportValue ProjectID, !ImportValue EnvironmentType, 'WebGitHubSync' ] ]
+      RoleArn: !Sub ${CodePipelineRole.Arn}
+      ArtifactStore:
+        Type: S3
+        Location: !Ref ArtifactBucket
+      Stages:
+        - Name: Source
+          Actions:
+            - Name: GitHub
+              ActionTypeId:
+                Category: Source
+                Owner: ThirdParty
+                Version: 1
+                Provider: GitHub
+              OutputArtifacts:
+                -  Name: Source
+              Configuration:
+                Owner: !Ref GitHubUser
+                Repo: !Ref GitHubRepository
+                Branch: !Ref GitHubBranch
+                OAuthToken: !Ref GitHubOAuthToken
+        - Name: Deploy
+          Actions:
+            - Name: WebsiteDeploy
+              RunOrder: 1
+              InputArtifacts:
+                - Name: Source
+              ActionTypeId:
+                Category: Deploy
+                Owner: AWS
+                Version: 1
+                Provider: S3
+              Configuration:
+                BucketName: !Ref WebsiteBucket
+                Extract: true
