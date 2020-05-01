@@ -10,8 +10,8 @@ phases:
     commands:
       - echo Entering the build phase...
       - echo Building started on `date`
-      - aws cloudformation package --template-file cloudformation/lambdahelpers/lambdaHelpers.yaml --s3-bucket $ARTIFACT_S3_BUCKET --output-template-file lambdaHelpers.yaml
-   finally:
+      - aws cloudformation package --template-file lambdaHelpers.yaml --s3-bucket $ARTIFACT_S3_BUCKET --output-template-file lambdaHelpers.yaml
+    finally:
       - echo This always runs even if the install command fails
 artifacts:
   type: zip
